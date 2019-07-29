@@ -1,0 +1,112 @@
+ // Club_parser – парсинг участников групп вконтакте
+ // Скрипт записывает в файл id всех участников заданной группы. Скрипт удобен если вы хотите например проспамить всех участников или добавить в приложение или… да мало ли вариантов. Скрипт работает через api, парсит примерно 100к-150к в минуту.
+ 
+ <?php
+//===[Настройки скрипта]===\\
+$email = 'tezmen@tezmen.ru';//Мыло
+$pass = 'tezmen';//Пароль
+$club = '1';//id группы
+$log = '/home/tezmen/php/log.txt';//Файл куда будет идти сохранение id
+
+error_reporting(0);
+set_time_limit(0); 
+$res = curl('http://vk.com/login.php?layout=iphone&app=8&url=/?act=auth');
+preg_match('#id="app_hash" value="([0-9a-f]{10,})"#', $res, $tmp);
+$res = curl('http://login.vk.com/', false, 1, 'act=login&al_test=9&app=8&app_hash='. $tmp[1] .'&vk=&auth_url=http://i.vkontakte.ru/?act=auth&email='. urlencode($email) .'&pass='. urlencode($pass));
+preg_match("#hash=([0-9a-f]{30,})#", $res, $tmp);
+$res = curl('http://vk.com/login.php?act=auth_result&m=4&permanent=&expire=1&app=8&hash='. $tmp[1]);
+preg_match('#"mid":([0-9]+),"sid":"([0-9a-f]{30,})","secret":"([0-9a-f]{8,})"#', $res, $tmp);
+$viewer_id = $tmp[1];
+$sid = $tmp[2];
+$secret = $tmp[3];
+$api_id = '8';
+while(true){
+	$data = vk_apiquery('groups.getMembers',array('gid' => $club, 'offset' => $i),'XML'); 
+	preg_match_all('/<uid>([0-9]+)<\/uid>/', $data, $id);
+	if(empty($id[1])){
+		echo "Запись окончена\n";
+		exit;
+	}
+	echo "Записываем....\n";
+	$i = $i+1000;
+	$file = fopen ($log, "a");
+	if (!$file){
+		echo("Ошибка открытия файла");
+	}else{
+		foreach($id[1] as $rec){
+			fputs ($file, $rec."\n");
+		}
+	}
+	fclose ($file);	
+}
+function curl($url, $cookie=false, $headers=false, $post=false) {
+	$ch = curl_init($url);
+	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+	curl_setopt($ch, CURLOPT_HEADER, $headers);
+	curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 0);
+	curl_setopt ($ch, CURLOPT_COOKIE, $cookie);
+	curl_setopt ($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 6.1; rv:2.0.1) Gecko/20100101 Firefox/4.0.1');
+	if ($post) {
+		curl_setopt($ch, CURLOPT_POST, 1);
+		curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+	}
+	$response = curl_exec ($ch);
+	curl_close($ch);
+	return $response;
+}
+
+function vk_apiquery($api_method, $data=false, $format='XML') 
+    { 
+    global $viewer_id,$sid,$secret,$api_id; 
+
+    if ($data!=false) 
+    $query=$data; 
+    $query['method']=$api_method; 
+    $query['format']=$format; 
+    $query['api_id']=$api_id; 
+    $query['v']='3.0'; 
+    ksort($query); 
+    $sig=''; 
+    foreach($query as $a=>$b)  
+        $sig.=$a.'='.$b; 
+    $sig=md5($viewer_id.$sig.$secret); 
+    $query['sid']=$sid; 
+    $query['sig']=$sig; 
+    ksort($query); 
+    foreach ($query as $a=>$b) 
+     $n[]=$a.'='.urlencode($b); 
+    $std_str=implode($n,'&'); 
+
+    do
+        { 
+        $res=''; 
+        $ch = curl_init('http://api.vk.com/api.php'); 
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); 
+        curl_setopt($ch, CURLOPT_FAILONERROR, true); 
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 0); 
+        curl_setopt($ch, CURLOPT_POST, 1); 
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $std_str); 
+        $res = curl_exec ($ch); 
+        curl_close($ch); 
+
+        if ($format=='XML') 
+            { 
+            preg_match('#<error_code>(.*)</error_code>#',$res,$tmp); 
+            $err_code=intval($tmp[1]); 
+            } 
+        else
+            { 
+            $tmp=json_decode($res); 
+            $err_code=intval($tmp->error->error_code); 
+            } 
+        if ($err_code==6) sleep(1); 
+        }  
+        while ($err_code==6); 
+
+    if ($format=='XML') 
+        return $res; 
+        else
+        return json_decode($res); 
+    }    
+
+?>
